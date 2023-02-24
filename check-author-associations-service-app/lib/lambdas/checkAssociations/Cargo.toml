@@ -1,0 +1,20 @@
+[package]
+name = "checkAssociations"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lambda_runtime = "0.3.0"
+log = "0.4.14"
+serde_json = "1.0.64"
+simple_logger = "1.11.0"
+tokio = {version = "1", features = ["full"]}
+rayon = "1.6.1"
+reqwest = "0.11.14"
+openssl = { version = "0.10", features = ["vendored"] }
+time = "0.3.17"
+
+
+[[bin]]
+name = "bootstrap"
+path = "src/main.rs"
