@@ -14,6 +14,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: Get Runtime
+      run: rustup target add x86_64-unknown-linux-musl
     - name: Build
       run: cd check-author-associations-service-app/lib/lambdas/checkAssociations && 
         cargo build --release --target x86_64-unknown-linux-musl &&
