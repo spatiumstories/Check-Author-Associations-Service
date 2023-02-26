@@ -2,6 +2,7 @@
 !jest.config.js
 *.d.ts
 node_modules
+lib/lambdas/checkAssociations/target
 
 # CDK asset staging directory
 .cdk.staging

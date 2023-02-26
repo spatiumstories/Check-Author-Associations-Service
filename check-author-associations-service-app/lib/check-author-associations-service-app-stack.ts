@@ -13,7 +13,7 @@ export class CheckAuthorAssociationsStack extends Stack {
     // 2. Scheduled Lambda that takes all RARE books, checks Deso for current ownership, pays author, and deletes item
     const checkAssociations = new Function(this, 'checkAssociations', {
       description: "Check All Author Associations to Ensure Subscription is Valid",
-      code: Code.fromAsset('lambdas/checkAssociations/target/x86_64-unknown-linux-musl/release/lambda'),
+      code: Code.fromAsset('lib/lambdas/checkAssociations/target/x86_64-unknown-linux-musl/release/lambda'),
       runtime: Runtime.PROVIDED_AL2,
       handler: 'not.required',
       environment: {
