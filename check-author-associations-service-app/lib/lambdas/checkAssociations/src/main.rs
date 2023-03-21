@@ -1,8 +1,9 @@
-use rayon::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Value;
 use lambda_runtime::handler_fn;
 use std::collections::HashMap;
+use futures_util::future::join_all;
 
 #[derive(Deserialize)]
 pub struct Request {
@@ -97,7 +98,7 @@ pub struct Association {
     #[serde(rename = "AssociationValue")]
     pub association_value: String,
     #[serde(rename = "ExtraData")]
-    pub extra_data: HashMap<String, String>,
+    pub extra_data: Option<HashMap<String, String>>,
     #[serde(rename = "BlockHeight")]
     pub block_height: u32,
 }
@@ -136,9 +137,17 @@ pub struct UserAssociationQuery {
 
 impl UserNftsRequest {
     async fn run(request: &UserNftsRequest, client: &reqwest::Client) -> Result<NFTs, FailureResponse> {
-        let uri = String::from("https://node.deso.org/api/v0/get-nfts-for-user");
+        let uri = "https://node.deso.org/api/v0/get-nfts-for-user";
 
-        let text = match run(client, uri, request).await {
+
+        let resp = match client.post(uri).json(request).send().await {
+            Ok(r) => r,
+            Err(e) => return Err(FailureResponse {
+                body: format!("Failed to send nft response: {}", e)
+            }),
+        };
+
+        let text = match resp.text().await {
             Ok(t) => t,
             Err(e) => return Err(FailureResponse {
                 body: format!("Failed to get all nfts: {}", e)
@@ -148,7 +157,7 @@ impl UserNftsRequest {
         let nfts: NFTs = match serde_json::from_str(&text) {
             Ok(j) => j,
             Err(e) => return Err(FailureResponse {
-                body: format!("Failed to get all nfts: {}", e)
+                body: format!("Failed to parse all nfts: {}", e)
             }),
         };
         Ok(nfts)
@@ -157,7 +166,7 @@ impl UserNftsRequest {
 impl UserAssociationQuery {
     async fn run(query: &UserAssociationQuery) -> Result<Associations, FailureResponse> {
         let client = reqwest::Client::new();
-        let uri = String::from("https://node.deso.org/api/v0/user-associations/query");
+        let uri = "https://node.deso.org/api/v0/user-associations/query";
 
         let text = match run(&client, uri, query).await {
             Ok(t) => t,
@@ -175,8 +184,8 @@ impl UserAssociationQuery {
     }
 }
 
-pub async fn run<T: Serialize + ?Sized>(client: &reqwest::Client, uri: String, json: &T) -> Result<String, FailureResponse> {
-    let all_associations = match client.post(&uri).json(json).send().await {
+pub async fn run<T: Serialize + ?Sized>(client: &reqwest::Client, uri: &str, json: &T) -> Result<String, FailureResponse> {
+    let all_associations = match client.post(uri).json(json).send().await {
         Ok(r) => r,
         Err(e) => return Err(FailureResponse {
             body: format!("Failed to get something: {}", e)
@@ -213,6 +222,36 @@ async fn main() -> Result<(), lambda_runtime::Error> {
     Ok(())
 }
 
+async fn get_associations() -> Result<Associations, FailureResponse> {
+    let client = reqwest::Client::new();
+
+    let uri = "http://spatiumtest-env.eba-wke3mfsm.us-east-1.elasticbeanstalk.com/api/author-associations";
+
+    let resp = match client.get(uri).send().await {
+        Ok(r) => r,
+        Err(e) => return Err(FailureResponse {
+            body: e.to_string()
+        }),
+    };
+
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => return Err(FailureResponse {
+            body: e.to_string()
+        }),
+    };
+
+    let associations: Associations = match serde_json::from_str(&text.to_string()) {
+        Ok(j) => j,
+        Err(e) => return Err(FailureResponse {
+            body: e.to_string()
+        }),
+    };
+
+    Ok(associations)
+
+}
+
 async fn check_author_nft(author_key: String, association_id: String, client: reqwest::Client) -> Response {
     let spatium_user_key = String::from("BC1YLg9piUDwrwTZfRipfXNq3hW3RZHW3fJZ7soDNNNnftcqrJvyrbq");
     
@@ -239,7 +278,7 @@ async fn check_author_nft(author_key: String, association_id: String, client: re
                 };
                 if expired && nft_type {
                     // Remove associatioin
-                    let uri = format!("https://api.spatiumstories.xyz/api/remove-author-association/{}", association_id);
+                    let uri = format!("http://spatiumtest-env.eba-wke3mfsm.us-east-1.elasticbeanstalk.com/api/remove-author-association/{}", association_id);
                     match client.post(&uri).send().await {
                         Ok(_) => println!("Removed association successfully {}", association_id),
                         Err(e) => println!("Error! {}", e)
@@ -250,8 +289,7 @@ async fn check_author_nft(author_key: String, association_id: String, client: re
     }
     Ok(SuccessResponse {
         body: String::from("Success!")
-    })
-    
+    })   
 }
 
 async fn is_expired(expiration_date: String) -> bool {
@@ -260,29 +298,36 @@ async fn is_expired(expiration_date: String) -> bool {
     now > unix_timestamp
 }
 
-async fn handler(_req: Request, _ctx: lambda_runtime::Context) -> Response {
+async fn handler(_event: Value, _ctx: lambda_runtime::Context) -> Response {
     let transactor_public_key_base58_check = Some(String::from("BC1YLg9piUDwrwTZfRipfXNq3hW3RZHW3fJZ7soDNNNnftcqrJvyrbq"));
     let association_type = Some(String::from("Spatium Author"));
     
     // 1. Get all Spatium Author associations
-    let query = UserAssociationQuery {
-        transactor_public_key_base58_check,
-        association_type,
-        ..Default::default()
+    let associations: Associations = match get_associations().await {
+        Ok(a) => a,
+        Err(e) => {
+            return Err(FailureResponse {
+                body: e.to_string(),
+            });
+        }
     };
 
-    let associations: Associations = UserAssociationQuery::run(&query).await?;
-
     // 2. For each author, check the NFTs they own and find the Spatium Author NFT
-    associations.associations.into_par_iter().for_each(|association| {
-        let author_key = association.target_user_public_key_base58_check;
+
+    let tasks: Vec<_> = associations.associations
+    .iter()
+    .map(|association| {
+        let author_key = association.target_user_public_key_base58_check.clone();
+        let association_id = association.association_id.clone();
         tokio::spawn(async move {
-            match check_author_nft(author_key, association.association_id, reqwest::Client::new()).await {
+            match check_author_nft(author_key, association_id, reqwest::Client::new()).await {
                 Ok(_) => println!("Checked Author!"),
-                Err(_) => println!("Error")
+                Err(e) => println!("Error: {}", e.to_string())
             };
-        });
-    });
+        })
+    })
+    .collect();
+    join_all(tasks).await;
 
     Ok(SuccessResponse {
         body: String::from("Success!"),
