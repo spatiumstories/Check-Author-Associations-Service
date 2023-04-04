@@ -313,9 +313,13 @@ async fn handler(_event: Value, _ctx: lambda_runtime::Context) -> Response {
     };
 
     // 2. For each author, check the NFTs they own and find the Spatium Author NFT
-
+    let free = String::from("Free");
+    let og = String::from("OG");
     let tasks: Vec<_> = associations.associations
     .iter()
+    .filter(|association| {
+        return !association.association_value.eq(&free) && !association.association_value.eq(&og);
+    })
     .map(|association| {
         let author_key = association.target_user_public_key_base58_check.clone();
         let association_id = association.association_id.clone();
